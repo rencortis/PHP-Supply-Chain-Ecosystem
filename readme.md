@@ -1,7 +1,7 @@
 # PHP Malware Analysis Toolkit
 
 This project provides a set of tools for detecting, analyzing, and monitoring PHP-based malicious code, with a particular focus on Composer ecosystem security and supply-chain attack prevention.
-
+All Malware package result **malicious_packages_list.xlsx**
 ## Features
 
 - **`php_malware_dna.yara`**  
@@ -28,4 +28,5 @@ This project provides a set of tools for detecting, analyzing, and monitoring PH
   - Retrieves package metadata  
   - Validates and monitors package integrity  
   - Supports early detection of supply-chain attacks  
+
 
