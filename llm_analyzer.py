@@ -5,7 +5,6 @@ from typing import List, Dict, Any
 from volcenginesdkarkruntime import Ark
 
 def find_php_files(base_dir: str = ".", exts=(".php", ".phtml", ".php5", ".inc", ".module")) -> List[str]:
-    """Recursively scan all subdirectories under base_dir to find all PHP files"""
     php_files: List[str] = []
     for root, _, files in os.walk(base_dir):
         for file in files:
@@ -15,24 +14,18 @@ def find_php_files(base_dir: str = ".", exts=(".php", ".phtml", ".php5", ".inc",
     return php_files
 
 def parse_file_metadata(file_path: str, base_dir: str = None) -> Dict[str, Any]:
-    """
-    Support two types of files:
-    A. Extracted files: containing "// Match: Rule=..., Identifier=..., ..." and "// --- End of Match ---" markers
-    B. Regular PHP files: without the above markers
-    """
     metadata: Dict[str, Any] = {
         "extracted_file": file_path,
         "original_files": [],
         "yara_rules": [],
         "matches_info": [],
-        "is_extracted_style": False,  # Indicates if it's an "extracted file" style
+        "is_extracted_style": False,
     }
 
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
-        # Check if it looks like an "extracted file"
         if "// Match:" in content:
             metadata["is_extracted_style"] = True
             match_headers = re.findall(
@@ -50,58 +43,46 @@ def parse_file_metadata(file_path: str, base_dir: str = None) -> Dict[str, Any]:
                     "original_file": orig_file.strip()
                 })
 
-            # Remove duplicates
             metadata["yara_rules"] = list(set(metadata["yara_rules"]))
             metadata["original_files"] = list(set(metadata["original_files"]))
 
-        # For regular PHP files, set itself as the "original file"
         if not metadata["original_files"]:
             metadata["original_files"] = [file_path]
 
     except Exception as e:
         print(f"[Error] Failed to parse file metadata {file_path}: {e}")
-
-    # Infer "package name": first level directory name relative to base_dir, otherwise parent directory name
     metadata["package_name"] = extract_package_name_from_path(file_path, base_dir)
     return metadata
 
 
 def extract_package_name_from_path(file_path: str, base_dir: str = None) -> str:
-    """Extract a reasonable "package name" from the path"""
+
     try:
         if base_dir:
             rel = os.path.relpath(file_path, base_dir)
             parts = rel.split(os.sep)
-            # If in subdirectory, take first directory name; otherwise take last level of base_dir
+
             if len(parts) > 1:
                 return parts[0]
             return os.path.basename(os.path.abspath(base_dir))
     except Exception:
         pass
-    # Fallback: take parent directory
+
     return os.path.basename(os.path.dirname(file_path))
 
 def read_code_chunks(file_path, metadata, chunk_size=150):
-    """
-    Read PHP file and split into chunks by type
-    - If extracted file, split by match blocks
-    - If regular file, read entire content and split into chunks by lines
-    Each chunk contains complete context information
-    """
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
         
         if metadata["is_extracted_style"]:
-            # Split by matches (extracted file)
+
             chunks = re.split(r'// --- End of Match ---', content)
             
             for i, chunk in enumerate(chunks):
                 if chunk.strip() and "// Match:" in chunk:
-                    # If chunk is too large, split further
                     lines = chunk.split('\n')
                     if len(lines) > chunk_size:
-                        # Preserve match header information
                         header_lines = []
                         code_lines = []
                         
@@ -110,8 +91,6 @@ def read_code_chunks(file_path, metadata, chunk_size=150):
                                 header_lines.append(line)
                             else:
                                 code_lines.append(line)
-                        
-                        # Process code portion in chunks
                         for j in range(0, len(code_lines), chunk_size):
                             sub_chunk = '\n'.join(header_lines + code_lines[j:j + chunk_size])
                             if sub_chunk.strip():
@@ -119,7 +98,7 @@ def read_code_chunks(file_path, metadata, chunk_size=150):
                     else:
                         yield chunk
         else:
-            # Regular file: read entire content, split into chunks by lines
+     
             lines = content.split('\n')
             for j in range(0, len(lines), chunk_size):
                 chunk = '\n'.join(lines[j:j + chunk_size])
@@ -131,9 +110,6 @@ def read_code_chunks(file_path, metadata, chunk_size=150):
         yield None
 
 def generate_enhanced_llm_prompt(code_chunk, metadata):
-    """Generate enhanced LLM prompt containing YARA detection background information (if applicable)"""
-    
-    # Build background information
     if metadata["is_extracted_style"]:
         background_info = f"""
 **Detection Background:**
@@ -204,7 +180,7 @@ Please output the analysis results in JSON format:
 def call_llm_api(prompt, model_id):
     """Call LLM API"""
     try:
-        api_key = os.getenv("ARK_API_KEY", "82b50e5d-7305-49bb-876d-8d46c7b64a5d")
+        api_key = os.getenv("ARK_API_KEY", "this is model key")
         client = Ark(api_key=api_key)
         
         completion = client.chat.completions.create(
@@ -213,8 +189,8 @@ def call_llm_api(prompt, model_id):
                 {"role": "system", "content": "You are a cybersecurity expert specialized in PHP malware analysis. Focus on accuracy and detailed technical analysis."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,  # Lower temperature for more consistent analysis
-            max_tokens=2000,  # Increase token limit for more detailed analysis
+            temperature=0.3,  
+            max_tokens=2000, 
             response_format={{"type": "json_object"}}
         )
         return completion.choices[0].message.content
@@ -223,7 +199,6 @@ def call_llm_api(prompt, model_id):
         return json.dumps({"error": f"Ark API request error: {e}"})
 
 def analyze_php_files(model_id, base_dir="/home/users/chluo/phpresult/0826"):
-    """Analyze all PHP files (including extracted files and regular files)"""
     php_files = find_php_files(base_dir)
     
     if not php_files:
@@ -235,18 +210,13 @@ def analyze_php_files(model_id, base_dir="/home/users/chluo/phpresult/0826"):
 
     for file_path in php_files:
         print(f"\n=== Analyzing file: {file_path} ===")
-        
-        # Parse file metadata
         metadata = parse_file_metadata(file_path, base_dir)
-        
         print(f"Package name: {metadata['package_name']}")
         print(f"YARA rules: {', '.join(metadata['yara_rules'])}")
         print(f"Match points: {len(metadata['matches_info'])}")
         
         file_analysis_results = []
         chunk_count = 0
-        
-        # Analyze in chunks
         for chunk in read_code_chunks(file_path, metadata, chunk_size=150):
             if chunk is None or not chunk.strip():
                 continue
@@ -275,15 +245,13 @@ def analyze_php_files(model_id, base_dir="/home/users/chluo/phpresult/0826"):
             is_malicious = parsed_response.get("is_malicious", False)
             
             print(f"    Result: Risk={risk_level}, Confidence={confidence}, Malicious={is_malicious}")
-            
-            # Record all analysis results
+
             file_analysis_results.append({
                 "chunk_id": chunk_count,
                 "analysis": parsed_response,
-                "code_snippet": chunk[:500] + "..." if len(chunk) > 500 else chunk  # Save part of code for reference
+                "code_snippet": chunk[:500] + "..." if len(chunk) > 500 else chunk
             })
-        
-        # Summarize file analysis results
+
         file_result = {
             "file_path": file_path,
             "metadata": metadata,
@@ -300,12 +268,8 @@ def analyze_php_files(model_id, base_dir="/home/users/chluo/phpresult/0826"):
         processed_count += 1
         
         print(f"  Analysis completed: {len(file_analysis_results)} code chunks")
-
-    # Save complete results
     with open("php_analysis_results.json", "w", encoding="utf-8") as f:
         json.dump(analysis_results, f, ensure_ascii=False, indent=2)
-    
-    # Generate high-risk summary report
     high_risk_files = []
     for result in analysis_results:
         if result["summary"]["high_risk_chunks"] > 0:
@@ -329,5 +293,5 @@ def analyze_php_files(model_id, base_dir="/home/users/chluo/phpresult/0826"):
 
 if __name__ == '__main__':
     model_id = "doubao-seed-1-6-thinking-250715"
-    base_directory = "/home/users/chluo/phpresult/0826"  # Specify current directory
+    base_directory = "/home/users/chluo/phpresult/0826"
     analyze_php_files(model_id, base_directory)
